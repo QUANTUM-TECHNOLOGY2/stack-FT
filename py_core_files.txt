@@ -1,0 +1,8 @@
+ Le volume dans le lecteur C s'appelle Disque Windows
+ Le num‚ro de s‚rie du volume est 8233-0832
+
+ R‚pertoire de C:\Users\kpeho\Downloads\Quantum\.venv\Lib\site-packages\pydantic_core
+
+09/07/2026  00:00         5ÿ261ÿ824 _pydantic_core.cp314-win_amd64.pyd
+               1 fichier(s)        5ÿ261ÿ824 octets
+               0 R‚p(s)  130ÿ525ÿ405ÿ184 octets libres
