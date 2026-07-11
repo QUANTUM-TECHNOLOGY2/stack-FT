@@ -3420,7 +3420,11 @@ window.deleteFiche = deleteFiche;
 window.showHistory = showHistory;
 window.loadStats = loadStats;
 window.loadTags = loadTags;
-window.searchFiches = searchFiches;
+// Guard export: `searchFiches` may be defined in `base.html` later,
+// so only assign if it's available to avoid ReferenceError.
+if (typeof searchFiches === 'function') {
+    window.searchFiches = searchFiches;
+}
 window.initDashboard = initDashboard;
 </script>
 {% endblock %}

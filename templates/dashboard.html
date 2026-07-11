@@ -520,7 +520,11 @@ window.deleteFiche = deleteFiche;
 window.showHistory = showHistory;
 window.loadStats = loadStats;
 window.loadTags = loadTags;
-window.searchFiches = searchFiches;
+// Guard export: `searchFiches` is defined in `base.html` which is
+// included after this template, so check existence before assigning.
+if (typeof searchFiches === 'function') {
+    window.searchFiches = searchFiches;
+}
 window.initDashboard = initDashboard;
 </script>
 {% endblock %}
