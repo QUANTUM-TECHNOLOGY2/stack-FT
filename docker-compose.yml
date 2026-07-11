@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  quantum:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - USE_LOCAL_BACKEND=0
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - DEBUG=${DEBUG:-False}
+    volumes:
+      - .:/app

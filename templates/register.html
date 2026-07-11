@@ -1,0 +1,56 @@
+
+{% extends 'base.html' %}
+{% block title %}Inscription - Quantum Technology{% endblock %}
+{% block content %}
+<div style="max-width: 420px; margin: 3rem auto;">
+    <div style="background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 2.5rem; border: 1px solid var(--gray-200);">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <div style="width: 96px; height: 96px; background: transparent; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem; overflow: hidden;">
+                <img src="/static/logo.svg.jpg" alt="Quantum Technology" style="width: 100%; height: 100%; object-fit: contain; display: block;" />
+            </div>
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--gray-900);">Créer un compte</h1>
+            <p style="color: var(--gray-500); font-size: 0.9rem;">Rejoignez Quantum Technology</p>
+        </div>
+        
+        <form method="post" action="{% url 'register' %}">
+            {% csrf_token %}
+            {% if error %}
+                <div style="background: rgba(214,28,78,0.12); color: #A31B45; border-radius: 12px; padding: 0.9rem; margin-bottom: 1rem;">
+                    {{ error }}
+                </div>
+            {% endif %}
+            <div class="form-group">
+                <label>Nom d'utilisateur <span class="required">*</span></label>
+                <input type="text" name="username" placeholder="Choisissez un nom" required>
+            </div>
+            <div class="form-group">
+                <label>Email <span class="required">*</span></label>
+                <input type="text" name="email" placeholder="votre@email.com" required>
+            </div>
+            <div class="form-group">
+                <label>Nom complet <span class="required">*</span></label>
+                <input type="text" name="full_name" placeholder="Votre nom complet" required>
+            </div>
+            <div class="form-group">
+                <label>Mot de passe <span class="required">*</span></label>
+                <input type="password" name="password1" placeholder="Minimum 6 caractères" required minlength="6">
+            </div>
+            <div class="form-group">
+                <label>Confirmer le mot de passe <span class="required">*</span></label>
+                <input type="password" name="password2" placeholder="Confirmez votre mot de passe" required>
+            </div>
+            <button type="submit" class="btn btn-secondary" style="width: 100%; justify-content: center; padding: 0.75rem;">
+                <i class="fas fa-user-plus"></i> S'inscrire
+            </button>
+        </form>
+        
+        <div style="text-align: center; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--gray-200);">
+            <p style="color: var(--gray-500); font-size: 0.9rem;">
+                Déjà un compte ? 
+                <a href="{% url 'login' %}" style="color: var(--primary); font-weight: 500; text-decoration: none;">Se connecter</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+    
