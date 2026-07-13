@@ -157,6 +157,11 @@ class LocalTable:
         self._filters.append((column, "=", value))
         return self
 
+    def in_(self, column, values):
+        # Support `in_` filter with a list of values
+        self._filters.append((column, "IN", list(values) if values is not None else []))
+        return self
+
     def or_(self, expression: str):
         self._filters.append(("__or__", expression, None))
         return self
@@ -255,7 +260,8 @@ class LocalTable:
             return SimpleNamespace(data=[], count=int(row["count"]) if row else 0)
 
         columns = self._select_fields or ["*"]
-        sql = f"SELECT * FROM {self.table_name}"
+        select_clause = ", ".join(columns)
+        sql = f"SELECT {select_clause} FROM {self.table_name}"
         where_sql, where_params = self._build_where_clause()
         if where_sql:
             sql += f" WHERE {where_sql}"
@@ -300,8 +306,19 @@ class LocalTable:
                     clauses.append(f"({' OR '.join(or_clauses)})")
             else:
                 column, operator, value = filter_part
-                clauses.append(f"{column} {operator} ?")
-                params.append(self._serialize_value(value))
+                if operator == 'IN':
+                    vals = list(value or [])
+                    if not vals:
+                        # Empty IN -> false condition
+                        clauses.append('(0=1)')
+                    else:
+                        placeholders = ','.join(['?'] * len(vals))
+                        clauses.append(f"{column} IN ({placeholders})")
+                        for v in vals:
+                            params.append(self._serialize_value(v))
+                else:
+                    clauses.append(f"{column} {operator} ?")
+                    params.append(self._serialize_value(value))
         return " AND ".join(clauses), params
 
     def _serialize_value(self, value):

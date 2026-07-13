@@ -85,9 +85,10 @@ except Exception:  # pragma: no cover
             self._filters.append((column, 'in', f'({values})'))
             return self
 
-        def select(self, select_str='*'):
+        def select(self, select_str='*', **kwargs):
             self._action = 'select'
             self._select = select_str
+            self._count = kwargs.get('count') == 'exact'
             return self
 
         def eq(self, column, value):
@@ -1339,8 +1340,14 @@ def api_fiches_list(request):
         tag = request.GET.get('tag', '')
         log_file.write(f"[API_FICHES] Params search={search!r}, category={category!r}, tag={tag!r}\n")
         
+        # Safe search fallback: some Supabase HTTP fallback clients mis-handle `or_`/`ilike`.
+        # To be robust, when a `search` term is provided we will fetch a bounded set
+        # of rows (to avoid unbounded scans) and apply a case-insensitive filter
+        # in Python. This avoids relying on the client's translation of `or_`.
+        SAFE_SEARCH_LIMIT = 1000
+        use_server_side_filter = False
         if search:
-            query = query.or_(f"reference.ilike.%{search}%,name.ilike.%{search}%,description.ilike.%{search}%,manufacturer.ilike.%{search}%")
+            use_server_side_filter = True
         if category:
             query = query.eq('category', category)
         if tag:
@@ -1353,33 +1360,80 @@ def api_fiches_list(request):
             if not fiche_ids:
                 return JsonResponse({'results': [], 'total': 0, 'page': int(request.GET.get('page', 1))})
             query = query.in_('id', fiche_ids)
-        
+
+        count_query = supabase.table('fiches').select('id', count='exact')
+        if category:
+            count_query = count_query.eq('category', category)
+        if tag:
+            count_query = count_query.in_('id', fiche_ids)
+
         # Pagination
         page = int(request.GET.get('page', 1))
         per_page = 20
         offset = (page - 1) * per_page
         
         log_file.write(f"[API_FICHES] Avant execute - offset={offset}, per_page={per_page}\n")
-        response = query.range(offset, offset + per_page - 1).order('created_at', desc=True).execute()
-        log_file.write(f"[API_FICHES] Response reçue: status={getattr(response, 'status_code', None)}, rows={len(response.data) if response.data else 0}\n")
 
-        if getattr(response, 'status_code', 200) >= 400:
-            log_file.write(f"[API_FICHES] Query error: {getattr(response, 'error', None)}\n")
-            log_file.close()
-            return JsonResponse({'error': 'Erreur de requête Supabase', 'details': getattr(response, 'error', None)}, status=500)
+        # If search requested, fetch a bounded result set and filter in Python
+        if use_server_side_filter:
+            try:
+                response = query.limit(SAFE_SEARCH_LIMIT).order('created_at', desc=True).execute()
+            except Exception as e:
+                log_file.write(f"[API_FICHES] Safe search execute exception: {e}\n")
+                log_file.close()
+                return JsonResponse({'error': 'Erreur de requête Supabase', 'details': str(e)}, status=500)
 
-        fiche_ids = [fiche.get('id') for fiche in response.data if fiche.get('id')]
-        author_ids = [fiche.get('author_id') for fiche in response.data if fiche.get('author_id')]
+            log_file.write(f"[API_FICHES] Safe search response: status={getattr(response, 'status_code', None)}, rows={len(response.data) if response.data else 0}\n")
+            if getattr(response, 'status_code', 200) >= 400:
+                log_file.write(f"[API_FICHES] Query error: {getattr(response, 'error', None)}\n")
+                log_file.close()
+                return JsonResponse({'error': 'Erreur de requête Supabase', 'details': getattr(response, 'error', None)}, status=500)
+
+            # Python-side case-insensitive filter across key fields
+            term = (search or '').strip().lower()
+            all_rows = response.data or []
+            def row_matches(r):
+                for key in ('reference', 'name', 'description', 'manufacturer'):
+                    v = r.get(key) if isinstance(r, dict) else None
+                    if v and term in str(v).lower():
+                        return True
+                return False
+
+            filtered = [r for r in all_rows if row_matches(r)]
+            total = len(filtered)
+            page_rows = filtered[offset: offset + per_page]
+
+            fiche_ids = [fiche.get('id') for fiche in page_rows if fiche.get('id')]
+            author_ids = [fiche.get('author_id') for fiche in page_rows if fiche.get('author_id')]
+            # reuse `page_rows` as our working set for later processing
+            working_rows = page_rows
+        else:
+            response = query.range(offset, offset + per_page - 1).order('created_at', desc=True).execute()
+            log_file.write(f"[API_FICHES] Response reçue: status={getattr(response, 'status_code', None)}, rows={len(response.data) if response.data else 0}\n")
+
+            if getattr(response, 'status_code', 200) >= 400:
+                log_file.write(f"[API_FICHES] Query error: {getattr(response, 'error', None)}\n")
+                log_file.close()
+                return JsonResponse({'error': 'Erreur de requête Supabase', 'details': getattr(response, 'error', None)}, status=500)
+
+            count_response = count_query.execute()
+            total = int(count_response.count) if hasattr(count_response, 'count') and count_response.count is not None else len(response.data or [])
+
+            fiche_ids = [fiche.get('id') for fiche in response.data if fiche.get('id')]
+            author_ids = [fiche.get('author_id') for fiche in response.data if fiche.get('author_id')]
+            working_rows = response.data or []
         author_map = {}
         if author_ids:
-            profiles_resp = supabase.table('profiles').select('id,username,full_name').in_('id', list(set(author_ids))).execute()
+            # Some backend table implementations may not support an `in_` helper.
+            # Fetch all profiles and filter in Python for maximum compatibility.
+            profiles_resp = supabase.table('profiles').select('id,username,full_name').execute()
             if profiles_resp.data:
                 author_map = {
                     profile['id']: {
                         'username': profile.get('username', ''),
                         'full_name': profile.get('full_name', '')
                     }
-                    for profile in profiles_resp.data
+                    for profile in profiles_resp.data if profile.get('id') in set(author_ids)
                 }
 
         tag_map = {}
@@ -1406,7 +1460,7 @@ def api_fiches_list(request):
                     version_counts[fid] = version_counts.get(fid, 0) + 1
 
         results = []
-        for fiche in response.data:
+        for fiche in working_rows:
             log_file.write(f"[API_FICHES] Traitement fiche: {fiche.get('id')}\n")
             author_profile = author_map.get(fiche.get('author_id')) if fiche.get('author_id') else None
             author_name = None
@@ -1453,7 +1507,7 @@ def api_fiches_list(request):
 
         return JsonResponse({
             'results': results,
-            'total': len(response.data),
+            'total': total if use_server_side_filter else total,
             'page': page,
         })
     except Exception as e:
@@ -1476,8 +1530,14 @@ def api_fiche_detail(request, fiche_id):
         author_display = get_profile_display_name(profile)
         
         # Tags
-        tags_response = supabase.table('fiche_tags').select('tags(*)').eq('fiche_id', fiche_id).execute()
-        fiche['tags'] = [t['tags'] for t in tags_response.data] if tags_response.data else []
+        tags_response = supabase.table('fiche_tags').select('tag_id').eq('fiche_id', fiche_id).execute()
+        tag_ids = [t['tag_id'] for t in tags_response.data] if tags_response.data else []
+        tags = []
+        if tag_ids:
+            tag_rows = supabase.table('tags').select('id,name,color').in_('id', tag_ids).execute().data or []
+            tag_map = {tag['id']: tag for tag in tag_rows if tag.get('id')}
+            tags = [tag_map.get(tag_id) for tag_id in tag_ids if tag_map.get(tag_id)]
+        fiche['tags'] = tags
         
         # Versions
         versions_response = supabase.table('versions').select('*').eq('fiche_id', fiche_id).order('created_at', desc=True).execute()
@@ -2072,13 +2132,22 @@ def api_notifications_mark_all_read(request):
 def api_stats(request):
     try:
         total = supabase.table('fiches').select('id', count='exact').execute()
+
         categories = supabase.table('fiches').select('category').execute()
-        tags = supabase.table('tags').select('id', count='exact').execute()
+
         fiche_tags = supabase.table('fiche_tags').select('tag_id').execute()
-        
+
         # Compter les versions
         versions = supabase.table('versions').select('id', count='exact').execute()
-        
+
+        # Non-destructive debug: write computed counts to a small file for inspection
+        try:
+            dbg = open('api_stats_counts.log', 'a')
+            dbg.write(f"total.count={getattr(total,'count',None)}, versions.count={getattr(versions,'count',None)}\n")
+            dbg.close()
+        except Exception:
+            pass
+
         # Catégories distinctes
         cat_set = set()
         if categories.data:

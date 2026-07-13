@@ -520,8 +520,8 @@ window.deleteFiche = deleteFiche;
 window.showHistory = showHistory;
 window.loadStats = loadStats;
 window.loadTags = loadTags;
-// Guard export: `searchFiches` is defined in `base.html` which is
-// included after this template, so check existence before assigning.
+// Guard export: `searchFiches` may be defined in `base.html` later,
+// so only assign if it's available to avoid ReferenceError.
 if (typeof searchFiches === 'function') {
     window.searchFiches = searchFiches;
 }
